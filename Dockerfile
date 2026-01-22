@@ -2,13 +2,16 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y git \
-    && rm -rf /var/lib/apt/lists/*
-
+# Optimization: Removed apt-get install git (no longer needed for API calls)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requests flask
 
 COPY . .
+
+# Define ENV placeholders (Optional, acts as documentation)
+ENV GITHUB_PAT=""
+ENV REPO_OWNER=""
+ENV REPO_NAME=""
 
 EXPOSE 8000
 
