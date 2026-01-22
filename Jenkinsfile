@@ -2,30 +2,36 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "gj5998/hello-python-app"
+        // Pulling from Jenkins Global Properties (Manage Jenkins > System)
+        DOCKER_IMAGE   = "gj5998/hello-python-app"
+        EC2_IP         = "${env.EC2_PUBLIC_IP}"
+        OWNER          = "${env.REPO_OWNER}"
+        REPO           = "${env.REPO_NAME}"
     }
 
     stages {
-
         stage('Prepare') {
             steps {
                 script {
-                    def gitCommitId = sh(
-                        script: "git rev-parse --short HEAD",
-                        returnStdout: true
-                    ).trim()
-                    env.GIT_COMMIT_ID = gitCommitId
+                    // Extract Short SHA
+                    env.GIT_COMMIT_ID = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                 }
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build & Inject Secrets') {
             steps {
-                sh """
-                  docker build \
-                  -t ${DOCKER_IMAGE}:${GIT_COMMIT_ID} \
-                  -t ${DOCKER_IMAGE}:latest .
-                """
+                // We pull the GitHub PAT securely just for the build process
+                withCredentials([string(credentialsId: 'github-pat', variable: 'PAT')]) {
+                    sh """
+                        docker build \
+                        --build-arg GITHUB_PAT=${PAT} \
+                        --build-arg REPO_OWNER=${OWNER} \
+                        --build-arg REPO_NAME=${REPO} \
+                        -t ${DOCKER_IMAGE}:${GIT_COMMIT_ID} \
+                        -t ${DOCKER_IMAGE}:latest .
+                    """
+                }
             }
         }
 
@@ -33,20 +39,21 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'dockerhub-password', variable: 'DOCKER_PASS')]) {
                     sh """
-                      echo \$DOCKER_PASS | docker login -u gj5998 --password-stdin
-                      docker push ${DOCKER_IMAGE}:${GIT_COMMIT_ID}
-                      docker push ${DOCKER_IMAGE}:latest
+                        echo \$DOCKER_PASS | docker login -u gj5998 --password-stdin
+                        docker push ${DOCKER_IMAGE}:${GIT_COMMIT_ID}
+                        docker push ${DOCKER_IMAGE}:latest
                     """
                 }
             }
         }
 
-        stage('Trigger Webhook') {
+        stage('Trigger Deployment') {
             steps {
+                // Using the IP we fetched from Global Properties
                 sh """
-                  curl -X POST http://localhost:10010 \
-                  -H "Content-Type: application/json" \
-                  -d '{"image":"${DOCKER_IMAGE}","tag":"latest"}'
+                    curl -X POST http://${EC2_IP}:10010 \
+                    -H "Content-Type: application/json" \
+                    -d '{"image": "${DOCKER_IMAGE}", "tag": "${GIT_COMMIT_ID}"}'
                 """
             }
         }
