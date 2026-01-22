@@ -2,17 +2,20 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Optimization: Removed apt-get install git (no longer needed for API calls)
+
+ARG GITHUB_PAT
+ARG REPO_OWNER
+ARG REPO_NAME
+
+
+ENV GITHUB_PAT=$GITHUB_PAT
+ENV REPO_OWNER=$REPO_OWNER
+ENV REPO_NAME=$REPO_NAME
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requests flask
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Define ENV placeholders (Optional, acts as documentation)
-ENV GITHUB_PAT=""
-ENV REPO_OWNER=""
-ENV REPO_NAME=""
-
 EXPOSE 8000
-
 CMD ["python3", "app.py"]
