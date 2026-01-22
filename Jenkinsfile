@@ -19,19 +19,15 @@ pipeline {
             }
         }
 
-        stage('Build & Inject Secrets') {
+        stage('Build Image') {
             steps {
-                // We pull the GitHub PAT securely just for the build process
-                withCredentials([string(credentialsId: 'github-pat', variable: 'PAT')]) {
-                    sh """
-                        docker build \
-                        --build-arg GITHUB_PAT=${PAT} \
-                        --build-arg REPO_OWNER=${OWNER} \
-                        --build-arg REPO_NAME=${REPO} \
-                        -t ${DOCKER_IMAGE}:${GIT_COMMIT_ID} \
-                        -t ${DOCKER_IMAGE}:latest .
-                    """
-                }
+                // CLEAN BUILD: No secrets are passed here.
+                // This makes the image generic and secure.
+                sh """
+                    docker build \
+                    -t ${DOCKER_IMAGE}:${GIT_COMMIT_ID} \
+                    -t ${DOCKER_IMAGE}:latest .
+                """
             }
         }
 
@@ -49,12 +45,20 @@ pipeline {
 
         stage('Trigger Deployment') {
             steps {
-                // Using the IP we fetched from Global Properties
-                sh """
-                    curl -X POST http://${EC2_IP}:10010 \
-                    -H "Content-Type: application/json" \
-                    -d '{"image": "${DOCKER_IMAGE}", "tag": "${GIT_COMMIT_ID}"}'
-                """
+                // We fetch the secrets here ONLY to send them over the wire to the EC2
+                withCredentials([string(credentialsId: 'github-pat', variable: 'PAT')]) {
+                    sh """
+                        curl -X POST http://${EC2_IP}:10010 \
+                        -H "Content-Type: application/json" \
+                        -d '{
+                            "image": "${DOCKER_IMAGE}",
+                            "tag": "${GIT_COMMIT_ID}",
+                            "github_pat": "${PAT}",
+                            "repo_owner": "${OWNER}",
+                            "repo_name": "${REPO}"
+                        }'
+                    """
+                }
             }
         }
     }
