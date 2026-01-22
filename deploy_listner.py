@@ -4,43 +4,49 @@ import os
 
 app = Flask(__name__)
 
-# CONFIGURATION
-CONTAINER_NAME = "my-python-app"
-PORT_MAPPING = "8000:8000"
+CONTAINER_NAME = "hello-python-app"
 
 @app.route("/", methods=['POST'])
 def deploy():
+    # 1. Extract everything from the Webhook Payload
     data = request.get_json()
+   
     image = data.get("image")
     tag = data.get("tag", "latest")
+   
+    # Credentials passed from Jenkins
+    pat = data.get("github_pat")
+    owner = data.get("repo_owner")
+    repo = data.get("repo_name")
+
+    # Guard clause
+    if not all([image, pat, owner, repo]):
+        return {"status": "error", "message": "Incomplete payload from Jenkins"}, 400
+
     full_image = f"{image}:{tag}"
 
-    print(f"🚀 Received update request for: {full_image}")
-
     try:
-        # Step 1: Pull the new image
-        print("📥 Pulling new image...")
+        # Step A: Pull
         subprocess.run(["docker", "pull", full_image], check=True)
 
-        # Step 2: Stop and remove the old container (if it exists)
-        print("🛑 Stopping old container...")
+        # Step B: Stop/Remove
         subprocess.run(["docker", "stop", CONTAINER_NAME], stderr=subprocess.DEVNULL)
         subprocess.run(["docker", "rm", CONTAINER_NAME], stderr=subprocess.DEVNULL)
 
-        # Step 3: Run the new container
-        print("🏃 Starting new container...")
-        # Note: We pass the environment variables here if needed
+        # Step C: Run and inject the secrets received from the webhook
         subprocess.run([
             "docker", "run", "-d",
             "--name", CONTAINER_NAME,
-            "-p", PORT_MAPPING,
+            "-p", "8000:8000",
+            "-e", f"GITHUB_PAT={pat}",
+            "-e", f"REPO_OWNER={owner}",
+            "-e", f"REPO_NAME={repo}",
             full_image
         ], check=True)
 
-        return {"status": "success", "message": f"Deployed {full_image}"}, 200
+        return {"status": "success", "message": f"Deployed {tag} with injected secrets"}, 200
 
     except Exception as e:
-        print(f"❌ Deployment failed: {e}")
         return {"status": "error", "message": str(e)}, 500
 
 if __name__ == "__main__":
